@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: rag-comparison-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app
+    repo: https://github.com/UniqueBlood7899/PDFWhisperer
+    branch: main
+    envVars:
+      - key: GROQ_API_KEY
+        value: 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
+      - key: GOOGLE_API_KEY
+        value: AIzaSyBZfSljKbbVMenUm6pXbwauXErlxArHLx4
+      - key: OPENROUTER_API_KEY
+        value: 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
+      - key: QDRANT_URL
+        value: https://c6d03f44-1a60-4bbb-9039-f4e99a198cb1.europe-west3-0.gcp.cloud.qdrant.io
+      - key: QDRANT_API_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.Tn6Xh9wgUCr-5K_XFrQU3nWSZNLOm_ZAZnN3IK9CMDM
+      - key: USE_LIGHTWEIGHT_EMBEDDINGS
+        value: true
+      - key: PORT
+        value: 8000
