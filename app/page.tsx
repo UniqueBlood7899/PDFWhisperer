@@ -11,8 +11,9 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
 
-// API URL - change this to your FastAPI backend URL
-const API_URL = 'http://localhost:8000';
+
+// Use environment variables with a fallback
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 // Types for API responses
 type ChunkInfo = {

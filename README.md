@@ -3,7 +3,7 @@
 A tool for comparing different Retrieval-Augmented Generation (RAG) architectures using various LLM providers.
 
 ## Deployed URL
-
+Head over to 
 
 ## Features
 
