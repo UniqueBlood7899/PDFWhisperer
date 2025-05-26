@@ -4,7 +4,10 @@ python-multipart==0.0.9
 langchain>=0.1.0
 langchain-groq>=0.1.0
 langchain-community>=0.1.0
+langchain-google-genai>=0.0.5
+openrouter>=0.3.0
 qdrant-client==1.6.4
 PyPDF2==3.0.1
 sentence-transformers==2.5.1
 pypdf==4.0.1
+pydantic>=2.0.0

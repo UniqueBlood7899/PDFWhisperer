@@ -1,5 +1,5 @@
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import time
 import traceback
 from langchain_community.document_loaders import PyPDFLoader
@@ -8,10 +8,13 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Qdrant
 from langchain.chains import RetrievalQA
 from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_community.chat_models import ChatOpenAI
 from langchain.chains.query_constructor.base import AttributeInfo
 from langchain.retrievers.self_query.base import SelfQueryRetriever
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
+from langchain_core.language_models import BaseChatModel
 import qdrant_client
 
 # More detailed error printing
@@ -34,22 +37,121 @@ except Exception as e:
         print_error(e, "Failed to load fallback embedding model")
         raise
 
-# Initialize Groq LLM - using the correct import from langchain_groq
-groq_api_key = os.environ.get("GROQ_API_KEY", "")
-if not groq_api_key:
-    print("WARNING: GROQ_API_KEY environment variable not set")
+# Define LLM provider options
+class LLMProvider:
+    GROQ = "groq"
+    GEMINI = "gemini"
+    OPENROUTER = "openrouter"
     
-try:
-    print("Initializing Groq LLM...")
-    llm = ChatGroq(
-        api_key=groq_api_key, 
-        model="llama3-8b-8192",
-        temperature=0.1
-    )
-    print("Groq LLM initialized successfully")
-except Exception as e:
-    print_error(e, "Failed to initialize Groq LLM")
-    raise
+    @staticmethod
+    def get_llm(provider: str, **kwargs) -> BaseChatModel:
+        """Get LLM instance based on provider name"""
+        if provider == LLMProvider.GROQ:
+            api_key = os.environ.get("GROQ_API_KEY", "")
+            model = kwargs.get("model", "llama3-8b-8192")
+            temperature = kwargs.get("temperature", 0.1)
+            
+            if not api_key:
+                raise ValueError("GROQ_API_KEY environment variable not set")
+                
+            try:
+                return ChatGroq(
+                    api_key=api_key,
+                    model=model,
+                    temperature=temperature
+                )
+            except Exception as e:
+                print_error(e, f"Error initializing Groq with model {model}")
+                # Fall back to a default model
+                return ChatGroq(
+                    api_key=api_key,
+                    model="llama3-8b-8192",  # Default fallback
+                    temperature=temperature
+                )
+            
+        elif provider == LLMProvider.GEMINI:
+            api_key = os.environ.get("GOOGLE_API_KEY", "")
+            # Updated model name - gemini-1.5-pro is the newer model
+            model = kwargs.get("model", "gemini-1.5-pro")
+            temperature = kwargs.get("temperature", 0.1)
+            
+            if not api_key:
+                raise ValueError("GOOGLE_API_KEY environment variable not set")
+                
+            try:
+                # Initialize with more explicit parameters
+                return ChatGoogleGenerativeAI(
+                    google_api_key=api_key,
+                    model=model,
+                    temperature=temperature,
+                    convert_system_message_to_human=True  # Handle system messages properly
+                )
+            except Exception as e:
+                print_error(e, f"Error initializing Gemini with model {model}")
+                print("Trying alternate model name format...")
+                try:
+                    # Try with alternate model name
+                    return ChatGoogleGenerativeAI(
+                        google_api_key=api_key,
+                        model="gemini-pro",  # Try older model name
+                        temperature=temperature,
+                        convert_system_message_to_human=True
+                    )
+                except Exception as e2:
+                    print_error(e2, "Error with alternate model as well")
+                    # Fall back to Groq if Gemini fails
+                    print("Falling back to Groq due to Gemini API issues")
+                    groq_api_key = os.environ.get("GROQ_API_KEY", "")
+                    if groq_api_key:
+                        return ChatGroq(
+                            api_key=groq_api_key,
+                            model="llama3-8b-8192",
+                            temperature=temperature
+                        )
+                    else:
+                        raise ValueError("Gemini failed and no GROQ_API_KEY for fallback")
+        
+        elif provider == LLMProvider.OPENROUTER:
+            api_key = os.environ.get("OPENROUTER_API_KEY", "")
+            model = kwargs.get("model", "mistralai/mistral-7b-instruct")
+            temperature = kwargs.get("temperature", 0.1)
+            
+            if not api_key:
+                raise ValueError("OPENROUTER_API_KEY environment variable not set")
+                
+            try:
+                # OpenRouter can be accessed through the ChatOpenAI class with base URL override
+                return ChatOpenAI(
+                    api_key=api_key,
+                    base_url="https://openrouter.ai/api/v1",
+                    model=model,
+                    temperature=temperature
+                )
+            except Exception as e:
+                print_error(e, f"Error initializing OpenRouter with model {model}")
+                # Try a different model if the specified one fails
+                try:
+                    return ChatOpenAI(
+                        api_key=api_key,
+                        base_url="https://openrouter.ai/api/v1",
+                        model="mistralai/mistral-7b-instruct",  # Fallback to reliable model
+                        temperature=temperature
+                    )
+                except Exception as e2:
+                    print_error(e2, "Error with fallback model as well")
+                    # Fall back to Groq if OpenRouter fails
+                    print("Falling back to Groq due to OpenRouter API issues")
+                    groq_api_key = os.environ.get("GROQ_API_KEY", "")
+                    if groq_api_key:
+                        return ChatGroq(
+                            api_key=groq_api_key,
+                            model="llama3-8b-8192",
+                            temperature=temperature
+                        )
+                    else:
+                        raise ValueError("OpenRouter failed and no GROQ_API_KEY for fallback")
+        else:
+            raise ValueError(f"Unsupported LLM provider: {provider}")
 
 class RAGFactory:
     def __init__(self, upload_dir: str):
@@ -133,9 +235,9 @@ class RAGFactory:
             print_error(e, f"Error processing PDF {file_path}")
             return False
     
-    def basic_rag(self, document_id: str, query: str) -> Dict[str, Any]:
+    def basic_rag(self, document_id: str, query: str, llm_provider: str = "groq", llm_kwargs: Dict[str, Any] = None) -> Dict[str, Any]:
         """Basic RAG implementation"""
-        print(f"Basic RAG query for document {document_id}: {query}")
+        print(f"Basic RAG query for document {document_id}: {query} using {llm_provider}")
         start_time = time.time()
         
         # Get vector store
@@ -147,13 +249,17 @@ class RAGFactory:
         vectorstore = self.document_stores[document_id]["vectorstore"]
         
         try:
+            # Initialize LLM
+            llm_kwargs = llm_kwargs or {}
+            llm = LLMProvider.get_llm(llm_provider, **llm_kwargs)
+            
             # Create retriever
             print("Creating retriever...")
             retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
             
             # Execute query to get documents
             print("Retrieving relevant documents...")
-            retrieved_docs = retriever.invoke(query)  # Using invoke instead of get_relevant_documents
+            retrieved_docs = retriever.invoke(query)
             print(f"Retrieved {len(retrieved_docs)} documents")
             
             # Format the context
@@ -170,7 +276,7 @@ class RAGFactory:
             # Execute query directly with the formatted prompt
             print("Generating answer...")
             answer = llm.invoke(rag_prompt)
-            if hasattr(answer, 'content'):  # ChatGroq returns a message with content
+            if hasattr(answer, 'content'):  # For ChatModels that return messages
                 answer = answer.content
             print("Answer generated successfully")
             
@@ -188,15 +294,16 @@ class RAGFactory:
             return {
                 "answer": answer,
                 "chunks": chunks,
-                "time": execution_time
+                "time": execution_time,
+                "llm_provider": llm_provider
             }
         except Exception as e:
-            print_error(e, "Error in basic RAG")
+            print_error(e, f"Error in basic RAG with {llm_provider}")
             raise
     
-    def self_query_rag(self, document_id: str, query: str) -> Dict[str, Any]:
+    def self_query_rag(self, document_id: str, query: str, llm_provider: str = "groq", llm_kwargs: Dict[str, Any] = None) -> Dict[str, Any]:
         """Self-query RAG implementation"""
-        print(f"Self-query RAG for document {document_id}: {query}")
+        print(f"Self-query RAG for document {document_id}: {query} using {llm_provider}")
         start_time = time.time()
         
         # Get vector store
@@ -208,6 +315,10 @@ class RAGFactory:
         vectorstore = self.document_stores[document_id]["vectorstore"]
         
         try:
+            # Initialize LLM
+            llm_kwargs = llm_kwargs or {}
+            llm = LLMProvider.get_llm(llm_provider, **llm_kwargs)
+            
             # Define metadata fields for self-querying
             metadata_field_info = [
                 AttributeInfo(
@@ -250,7 +361,7 @@ class RAGFactory:
             # Execute query directly with the formatted prompt
             print("Generating answer...")
             answer = llm.invoke(rag_prompt)
-            if hasattr(answer, 'content'):  # ChatGroq returns a message with content
+            if hasattr(answer, 'content'):  # For ChatModels that return messages
                 answer = answer.content
             print("Answer generated successfully")
             
@@ -268,15 +379,16 @@ class RAGFactory:
             return {
                 "answer": answer,
                 "chunks": chunks,
-                "time": execution_time
+                "time": execution_time,
+                "llm_provider": llm_provider
             }
         except Exception as e:
-            print_error(e, "Error in self-query RAG")
+            print_error(e, f"Error in self-query RAG with {llm_provider}")
             raise
     
-    def reranker_rag(self, document_id: str, query: str) -> Dict[str, Any]:
+    def reranker_rag(self, document_id: str, query: str, llm_provider: str = "groq", llm_kwargs: Dict[str, Any] = None) -> Dict[str, Any]:
         """Reranker RAG implementation"""
-        print(f"Reranker RAG for document {document_id}: {query}")
+        print(f"Reranker RAG for document {document_id}: {query} using {llm_provider}")
         start_time = time.time()
         
         # Get vector store
@@ -288,6 +400,10 @@ class RAGFactory:
         vectorstore = self.document_stores[document_id]["vectorstore"]
         
         try:
+            # Initialize LLM
+            llm_kwargs = llm_kwargs or {}
+            llm = LLMProvider.get_llm(llm_provider, **llm_kwargs)
+            
             # Create retriever with larger k for reranking
             print("Creating retriever for reranking...")
             retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
@@ -315,7 +431,7 @@ class RAGFactory:
             # Execute query directly with the formatted prompt
             print("Generating answer...")
             answer = llm.invoke(rag_prompt)
-            if hasattr(answer, 'content'):  # ChatGroq returns a message with content
+            if hasattr(answer, 'content'):  # For ChatModels that return messages
                 answer = answer.content
             print("Answer generated successfully")
             
@@ -333,8 +449,9 @@ class RAGFactory:
             return {
                 "answer": answer,
                 "chunks": chunks,
-                "time": execution_time
+                "time": execution_time,
+                "llm_provider": llm_provider
             }
         except Exception as e:
-            print_error(e, "Error in reranker RAG")
+            print_error(e, f"Error in reranker RAG with {llm_provider}")
             raise
