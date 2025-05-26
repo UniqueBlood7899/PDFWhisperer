@@ -4,21 +4,20 @@ from pydantic import BaseModel
 from typing import Dict, List, Optional, Literal
 import os
 import uuid
-import uvicorn  # Add this import
 from rag_implementations import RAGFactory, LLMProvider
 
 app = FastAPI(title="RAG Comparison API")
 
-# Configure CORS for frontend
+# Configure CORS for frontend - adjusted for Vercel deployment
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://pdf-whisperer-psi.vercel.app", "http://localhost:3000"],
+    allow_origins=["*"],  # Allow all origins when frontend and backend are on same domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Storage for uploaded PDFs and their embeddings
+# For Vercel, we need to use /tmp directory for file storage
 UPLOAD_DIR = "/tmp/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -193,6 +192,3 @@ async def get_llm_providers():
     }
     
     return providers
-
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
