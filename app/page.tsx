@@ -1,5 +1,4 @@
-'use client'
-
+"use client";
 import { useState, useEffect } from 'react'
 import { useToast } from '@/hooks/use-toast'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -13,7 +12,13 @@ import { Slider } from '@/components/ui/slider'
 
 
 // Use environment variables with a fallback
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const getApiUrl = () => {
+  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  console.log('API URL:', url);
+  return url;
+};
+
+const API_URL = getApiUrl();
 
 // Types for API responses
 type ChunkInfo = {
@@ -71,14 +76,16 @@ export default function Home() {
   useEffect(() => {
     const fetchLLMProviders = async () => {
       try {
+        console.log('Fetching providers from:', `${API_URL}/llm-providers`);
         const response = await fetch(`${API_URL}/llm-providers`);
-        if (response.ok) {
-          const data = await response.json();
-          setLlmProviders(data);
-          // Set default model for initial provider
-          if (data.groq && data.groq.models.length > 0) {
-            setSelectedModel(data.groq.models[0].id);
-          }
+        if (!response.ok) {
+          throw new Error(`Failed to fetch providers: ${response.status}`);
+        }
+        const data = await response.json();
+        setLlmProviders(data);
+        // Set default model for initial provider
+        if (data.groq && data.groq.models.length > 0) {
+          setSelectedModel(data.groq.models[0].id);
         }
       } catch (error) {
         console.error('Error fetching LLM providers:', error);

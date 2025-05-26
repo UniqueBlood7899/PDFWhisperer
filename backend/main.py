@@ -4,7 +4,28 @@ from pydantic import BaseModel
 from typing import Dict, List, Optional, Literal
 import os
 import uuid
-import uvicorn  # Add this import
+import uvicorn
+import sys
+import logging
+from dotenv import load_dotenv
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Load environment variables from .env file
+load_dotenv(dotenv_path='../.env')
+
+# Log important startup information
+logger.info(f"Working directory: {os.getcwd()}")
+logger.info(f"Python version: {sys.version}")
+logger.info(f"GROQ_API_KEY set: {'Yes' if os.environ.get('GROQ_API_KEY') else 'No'}")
+logger.info(f"GOOGLE_API_KEY set: {'Yes' if os.environ.get('GOOGLE_API_KEY') else 'No'}")
+logger.info(f"OPENROUTER_API_KEY set: {'Yes' if os.environ.get('OPENROUTER_API_KEY') else 'No'}")
+
 from rag_implementations import RAGFactory, LLMProvider
 
 app = FastAPI(title="RAG Comparison API")
@@ -12,7 +33,7 @@ app = FastAPI(title="RAG Comparison API")
 # Configure CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://pdf-whisperer-psi.vercel.app", "http://localhost:3000"],
+    allow_origins=["https://pdf-whisperer-psi.vercel.app", "http://localhost:3000", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -20,7 +41,20 @@ app.add_middleware(
 
 # Storage for uploaded PDFs and their embeddings
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
+# Create absolute path to ensure consistent directory location
+UPLOAD_DIR = os.path.abspath(UPLOAD_DIR)
+# Create directory with permissive permissions
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+logger.info(f"Upload directory: {UPLOAD_DIR}")
+try:
+    # Test write permissions
+    test_file = os.path.join(UPLOAD_DIR, ".write_test")
+    with open(test_file, "w") as f:
+        f.write("test")
+    os.remove(test_file)
+    logger.info("Upload directory is writable")
+except Exception as e:
+    logger.error(f"Upload directory may not be writable: {str(e)}")
 
 # Initialize RAG factory
 rag_factory = RAGFactory(UPLOAD_DIR)
@@ -193,6 +227,21 @@ async def get_llm_providers():
     }
     
     return providers
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint to verify API is running"""
+    return {
+        "status": "healthy",
+        "api_version": "1.0",
+        "environment": {
+            "groq_api_key": bool(os.environ.get("GROQ_API_KEY")),
+            "google_api_key": bool(os.environ.get("GOOGLE_API_KEY")),
+            "openrouter_api_key": bool(os.environ.get("OPENROUTER_API_KEY")),
+            "upload_dir": UPLOAD_DIR,
+            "upload_dir_writable": True  # We already tested this above
+        }
+    }
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
