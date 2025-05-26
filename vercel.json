@@ -3,8 +3,5 @@
   "outputDirectory": ".next",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
-  "framework": "nextjs",
-  "environment": {
-    "NEXT_PUBLIC_API_URL": "https://pdf-whisper-production.up.railway.app"
-  }
+  "framework": "nextjs"
 }
