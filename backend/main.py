@@ -19,7 +19,7 @@ app.add_middleware(
 )
 
 # Storage for uploaded PDFs and their embeddings
-UPLOAD_DIR = "uploads"
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Initialize RAG factory
